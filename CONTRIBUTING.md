@@ -14,7 +14,7 @@ Thanks for considering a contribution.
 Python tests use mocked HTTP responses and do not intentionally contact public proxies:
 
 ```sh
-python3 -m unittest -v test_collect.py test_publish.py
+python3 -m unittest -v test_collect.py test_publish.py test_source_adapters.py test_previous_nodes.py
 ```
 
 The live scanner and Pages publisher access public sources and Cloudflare. Do not run them as part of routine tests. Run them only when you intend to perform a real scan or deploy to a Pages project you control.

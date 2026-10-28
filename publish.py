@@ -41,6 +41,8 @@ def validate(folder):
     age=datetime.datetime.now(datetime.timezone.utc)-started
     if not datetime.timedelta(minutes=-1) <= age <= datetime.timedelta(minutes=30):
         raise ValueError('Snapshot is stale; re-run local verification before publishing.')
+    if any(row.get('rechecked') is not True for row in info['nodes']):
+        raise ValueError('Snapshot contains nodes without the required second verification')
     if set(info['countries'])!=set(collect.country_codes()):
         raise ValueError('Incomplete country catalogue')
     if any(not collect.public_endpoint(r['host'],r['port']) or r['protocol'] not in ('http','socks5')
@@ -79,6 +81,11 @@ def main():
     branch=args.branch or os.environ.get('PAGES_BRANCH') or local_config().get('PAGES_BRANCH','main')
     if not WRANGLER.exists():
         raise SystemExit('Run npm ci --ignore-scripts in local-proxy-direct first.')
+    previous_file=ROOT/'.published-nodes.json'
+    baseline=ROOT/'dist/nodes.json'
+    if not previous_file.exists() and baseline.exists():
+        # Preserve the pre-upgrade baseline before dist can be replaced.
+        collect.atomic_write(previous_file,baseline.read_text())
     if not args.skip_refresh:
         subprocess.run([sys.executable,str(ROOT/'collect.py'),'--countries',args.countries,
                         '--limit',str(args.limit),'--workers','8'],check=True)
@@ -105,6 +112,7 @@ def main():
              '--commit-message','Publish locally verified static proxy snapshot']
     print(f'Publishing {len(info["nodes"])} verified public nodes; no Cloudflare tunnel.',flush=True)
     subprocess.run(command,cwd=ROOT/'deploy',check=True)
+    collect.atomic_write(ROOT/'.published-nodes.json',json.dumps(info,ensure_ascii=False)+'\n')
 
 
 if __name__=='__main__':

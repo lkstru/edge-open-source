@@ -8,7 +8,7 @@ Mac-side public-proxy collection and verification, with static Cloudflare Pages 
 
 ## What it does
 
-- Fetches candidates from ProxySpace and HProxy on the Mac.
+- Fetches candidates from ProxySpace, HProxy, ProxyScrape, and Proxio on the Mac.
 - Filters invalid addresses, ports, country labels, offline entries, and known TLS-intercepting endpoints.
 - Tests a bounded sample with the system `curl`, validating HTTPS certificates, observed exit country through two endpoints, and basic YouTube reachability.
 - Exports a Shadowrocket configuration and country-specific files from verified candidates only.
@@ -35,7 +35,7 @@ The project name and any local authorization state are not committed. Do not add
 
 ## Regular use
 
-Double-click `run-macos.command` to refresh and publish. It samples up to 16 candidates per country and tests up to 8 at a time. A full scan can take several minutes. The command does not change macOS proxy settings, turn on a VPN, or modify an existing Shadowrocket configuration.
+Double-click `run-macos.command` to refresh and publish. It revalidates previously published nodes, then samples up to 16 different new candidates per country, testing up to 8 at a time. A full scan can take tens of minutes. The command does not change macOS proxy settings, turn on a VPN, or modify an existing Shadowrocket configuration.
 
 In Shadowrocket, add the website's remote configuration URL from the **Config** page. After a new Pages deployment, refresh that remote configuration in Shadowrocket. Choosing a configuration is separate from downloading or importing it.
 
@@ -84,3 +84,11 @@ The generated Pages files (`nodes.json`, `subscribe.conf`, and country configura
 See [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), and [LICENSE](LICENSE).
 
 Data-source references: [ProxySpace](https://proxyspace.pro/) and [HProxy free proxy list](https://hproxy.com/docs/free-proxy-list). This project is independent and is not endorsed by either provider, Cloudflare, or Shadowrocket.
+
+## v1.1.0 workflow and upgrade
+
+Previously published nodes are fully revalidated before new candidates are checked. They do not consume the per-country budget of 16 new candidates. New candidates are deduplicated, balanced across sources and protocols, rotated using local attempt history, and ordered to check countries without a successful old node first. Every initially successful node must pass a second complete HTTPS/country/YouTube check before export. Historical success is never reused as current evidence; country coverage can still decrease.
+
+`.scan-history.json` stores up to 30 days of local attempt times. `.published-nodes.json` stores the successfully published pool. Both are excluded from Git. The first upgrade bootstraps from an existing `dist/nodes.json`. Source errors are recorded while other sources continue; empty scans stop publication. Nonempty snapshots without second-verification markers cannot be published, so perform a fresh scan after upgrading.
+
+See [SOURCES.md](SOURCES.md) for source interfaces, protocol mapping, and Proxio CC BY 4.0 data attribution. Source counts in the local report are assignments after deduplication, not guaranteed incremental or exclusive contributions.

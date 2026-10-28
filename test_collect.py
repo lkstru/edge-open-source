@@ -5,7 +5,6 @@ import unittest
 from unittest.mock import patch
 import collect
 
-# IP addresses below are test fixtures only; network calls are mocked in these tests.
 
 class CollectorTests(unittest.TestCase):
     def test_reject_private_and_invalid_endpoints(self):

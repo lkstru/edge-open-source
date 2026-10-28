@@ -16,3 +16,6 @@ deploy/project.env
 *.key
 *.p12
 *.pfx
+
+.scan-history.json
+.published-nodes.json

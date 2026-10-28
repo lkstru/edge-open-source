@@ -20,6 +20,19 @@ class PublishTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'Unexpected files'):
                 publish.validate(page)
 
+    def test_nonempty_snapshot_requires_second_verification(self):
+        with tempfile.TemporaryDirectory() as folder:
+            row=dict(host='8.8.8.8',port=80,protocol='http',country='US',
+                     verified=True,checked_at='test',test_seconds=1,exit_ip='8.8.8.8')
+            report=dict(checked_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        results=[row],countries=['US'],source_errors=[],collected={'US':1})
+            collect.export(Path(folder),report)
+            with self.assertRaisesRegex(ValueError,'second verification'):
+                publish.validate(Path(folder)/'pages')
+            row['rechecked']=True
+            collect.export(Path(folder),report)
+            self.assertEqual(len(publish.validate(Path(folder)/'pages')['nodes']),1)
+
     def test_stale_snapshot_cannot_publish(self):
         with tempfile.TemporaryDirectory() as folder:
             page=self.snapshot(folder)

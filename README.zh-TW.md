@@ -8,7 +8,7 @@
 
 ## 功能
 
-- 在 Mac 從 ProxySpace 與 HProxy 取得候選節點。
+- 在 Mac 從 ProxySpace、HProxy、ProxyScrape 與 Proxio 取得候選節點。
 - 過濾無效位址、埠、國碼、離線項目與已知 TLS 攔截端點。
 - 由系統 `curl` 抽樣驗證 HTTPS 憑證、兩個端點回報的出口國家，以及 YouTube 基本連通性。
 - 只把通過驗證的節點產生為 Shadowrocket 設定及分國設定。
@@ -35,7 +35,7 @@ Shadowrocket 直接連到所選代理。Cloudflare Pages 僅提供快照，不�
 
 ## 日常使用
 
-雙擊 `run-macos.command` 重新掃描並發布。每國最多抽樣 16 個候選，同時最多驗證 8 個；全球掃描需要數分鐘。指令不會更改 macOS 系統代理、啟動 VPN 或修改既有 Shadowrocket 設定。
+雙擊 `run-macos.command` 重新掃描並發布。先重新驗證上一版成功發布的節點，再為每國抽樣最多 16 個不同的新候選；同時最多驗證 8 個。全球掃描可能需要十多分鐘。指令不會更改 macOS 系統代理、啟動 VPN 或修改既有 Shadowrocket 設定。
 
 在小火箭「配置」頁加入網站提供的遠端設定網址。Pages 發布新快照後，在小火箭內更新這份遠端設定。選用設定和下載／匯入是不同步驟。
 
@@ -84,3 +84,11 @@ python3 check_live.py https://YOUR-PAGES-PROJECT.pages.dev
 另請閱讀 [安全政策](SECURITY.md)、[貢獻指南](CONTRIBUTING.md) 與 [MIT 授權](LICENSE)。
 
 資料來源文件：[ProxySpace](https://proxyspace.pro/) 與 [HProxy 公開代理清單](https://hproxy.com/docs/free-proxy-list)。本專案與來源服務、Cloudflare 或 Shadowrocket 均無隸屬或背書關係。
+
+## v1.1.0：多來源與舊節點複查
+
+每次掃描先重新完整驗證上一版節點；舊節點不占每國 16 個新候選的名額。新候選跨來源去重、依來源與協定均衡抽樣，並依本機探測歷史輪換，優先處理尚無成功出口的國家。新舊節點都需在導出前再次通過 HTTPS 憑證、國家及 YouTube robots 檢查；歷史成功不會直接沿用，國家數也不保證持續增加。
+
+`.scan-history.json` 是近 30 日探測時間記錄；`.published-nodes.json` 是成功發布後的節點池。兩者都僅存本機、排除於 Git。首次升級會以既有 `dist/nodes.json` 作為複查基準。來源失效時記錄錯誤，仍可驗證其他來源；零節點則停止發布。發布器拒絕缺少複驗標記的非空快照，升級後請先重新掃描。
+
+Proxio 的資料授權為 CC BY 4.0；來源與協定解讀詳見 [SOURCES.md](SOURCES.md)。本機報告的來源歸屬是去重後的歸屬，不代表該來源獨家提供或保證新增的節點數。

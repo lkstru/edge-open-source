@@ -1,7 +1,9 @@
 {
   "name": "lkstru-edge-local-control",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Local proxy verification and static Pages publishing; no Cloudflare relay",
-  "devDependencies": {"wrangler": "4.153.0"}
+  "devDependencies": {
+    "wrangler": "4.153.0"
+  }
 }
