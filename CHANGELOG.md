@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0 — 2026-10-28
+
+- Add daily/deep choices to the existing Finder launchers.
+- Deep mode samples in country batches, stopping at four initial successes or 64 new candidates.
+- Base publication and website expiry on final node verification timestamps instead of scan start.
+- Add offline mode-budget, early-stop, stale-node and future-timestamp checks.
+
 ## 1.1.0 — 2026-10-28
 
 - Add ProxyScrape and Proxio public JSON sources, with Proxio CC BY 4.0 attribution.

@@ -6,6 +6,7 @@ For a working copy or a public repository, keep the complete project tree. The r
 
 | File or folder | Required? | Purpose |
 | --- | --- | --- |
+| `scan-mode.zsh` | Yes for Finder launchers | Shared daily/deep mode menu. |
 | `source_adapters.py` | Yes | Parses and fetches the additional public JSON sources. |
 | `collect.py` | Yes | Downloads candidate lists, filters them, runs local HTTPS checks, and generates outputs. |
 | `publish.py` | Yes for publishing | Validates a fresh snapshot and invokes Wrangler to publish Pages assets. |
@@ -15,7 +16,7 @@ For a working copy or a public repository, keep the complete project tree. The r
 | `package.json`, `package-lock.json` | Yes for publishing | Pin Wrangler and make dependency installation reproducible. |
 | `run-macos.command` | Recommended | Finder one-click scan, validation, and deployment launcher. |
 | `collect-only.command` | Optional | Finder launcher for a scan that does not publish. |
-| `test_collect.py`, `test_publish.py`, `test_source_adapters.py`, `test_previous_nodes.py` | Recommended | Offline regression tests with mocked source requests. |
+| `test_collect.py`, `test_publish.py`, `test_source_adapters.py`, `test_previous_nodes.py`, `test_scan_modes.py` | Recommended | Offline regression tests with mocked source requests. |
 | `README.md`, `README.zh-TW.md`, `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md` | Recommended | Usage, licensing, security, and contributor guidance. |
 
 ## Keep private local configuration separately

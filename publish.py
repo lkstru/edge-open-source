@@ -37,18 +37,25 @@ def configured_project_name(override=None):
 
 def validate(folder):
     info=json.loads((folder/'nodes.json').read_text())
-    started=datetime.datetime.fromisoformat(info['generated_at'])
-    age=datetime.datetime.now(datetime.timezone.utc)-started
-    if not datetime.timedelta(minutes=-1) <= age <= datetime.timedelta(minutes=30):
+    now=datetime.datetime.now(datetime.timezone.utc)
+    def fresh(value):
+        try:
+            stamp=datetime.datetime.fromisoformat(value)
+            return stamp.tzinfo is not None and datetime.timedelta(minutes=-1)<=now-stamp<=datetime.timedelta(minutes=30)
+        except (ValueError,TypeError): return False
+    if not fresh(info.get('validated_at',info['generated_at'])):
         raise ValueError('Snapshot is stale; re-run local verification before publishing.')
     if any(row.get('rechecked') is not True for row in info['nodes']):
         raise ValueError('Snapshot contains nodes without the required second verification')
+    if any(not fresh(row.get('checked_at')) for row in info['nodes']):
+        raise ValueError('Snapshot contains stale node verification')
+    configuration_time=info.get('validated_at',info['generated_at'])
     if set(info['countries'])!=set(collect.country_codes()):
         raise ValueError('Incomplete country catalogue')
     if any(not collect.public_endpoint(r['host'],r['port']) or r['protocol'] not in ('http','socks5')
            or r['country'] not in info['countries'] for r in info['nodes']):
         raise ValueError('Invalid public node')
-    if (folder/'subscribe.conf').read_text()!=collect.config_text(info['nodes'],info['generated_at']):
+    if (folder/'subscribe.conf').read_text()!=collect.config_text(info['nodes'],configuration_time):
         raise ValueError('Subscription does not match verified snapshot')
     expected=set(p.name for p in (ROOT/'web').iterdir())|{'nodes.json','subscribe.conf','countries'}
     if set(p.name for p in folder.iterdir())!=expected:
@@ -59,7 +66,7 @@ def validate(folder):
     for filename in wanted:
         code=filename[:2]
         if (folder/'countries'/filename).read_text()!=collect.config_text(
-                [r for r in info['nodes'] if r['country']==code],info['generated_at']):
+                [r for r in info['nodes'] if r['country']==code],configuration_time):
             raise ValueError('Country file does not match verified snapshot')
     for asset in (ROOT/'web').iterdir():
         if (folder/asset.name).read_bytes()!=asset.read_bytes():
@@ -70,13 +77,18 @@ def validate(folder):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--countries',default='ALL')
-    parser.add_argument('--limit',type=int,default=16)
+    parser.add_argument('--mode',choices=['daily','deep'],default='daily')
+    parser.add_argument('--target',type=int,default=4)
+    parser.add_argument('--limit',type=int,default=None)
     parser.add_argument('--project-name',help='Cloudflare Pages project name; defaults to PAGES_PROJECT_NAME')
     parser.add_argument('--branch')
-    parser.add_argument('--skip-refresh',action='store_true',help='Publish existing snapshot only if less than 30 minutes old')
+    parser.add_argument('--skip-refresh',action='store_true',help='Publish existing snapshot only if every final node check is within 30 minutes')
     parser.add_argument('--allow-empty',action='store_true',
                         help='Allow publishing an empty REJECT-only snapshot')
     args=parser.parse_args()
+    args.limit=args.limit if args.limit is not None else (64 if args.mode=='deep' else 16)
+    if not 1<=args.limit<=100 or not 1<=args.target<=16:
+        parser.error('limit must be 1-100 and target must be 1-16')
     project=configured_project_name(args.project_name)
     branch=args.branch or os.environ.get('PAGES_BRANCH') or local_config().get('PAGES_BRANCH','main')
     if not WRANGLER.exists():
@@ -88,7 +100,8 @@ def main():
         collect.atomic_write(previous_file,baseline.read_text())
     if not args.skip_refresh:
         subprocess.run([sys.executable,str(ROOT/'collect.py'),'--countries',args.countries,
-                        '--limit',str(args.limit),'--workers','8'],check=True)
+                        '--limit',str(args.limit),'--workers','8',
+                        '--mode',args.mode,'--target',str(args.target)],check=True)
     snapshot=ROOT/'output/pages/nodes.json'
     try:
         node_count=len(json.loads(snapshot.read_text())['nodes'])

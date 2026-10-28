@@ -4,7 +4,11 @@ const names=new Intl.DisplayNames(['zh-TW'],{type:'region'});
 const english=new Intl.DisplayNames(['en'],{type:'region'});
 const labels={verified:'通過 Mac 驗證',failed:'本次未通過',no_candidates:'來源無候選',not_checked:'尚未測試',source_error:'來源讀取失敗'};
 let snapshot=null;
-const stale=()=>!snapshot || !Number.isFinite(Date.parse(snapshot.generated_at)) || Date.now()-Date.parse(snapshot.generated_at)>snapshot.stale_after_minutes*60000;
+const stale=()=>{
+ if(!snapshot)return true;
+ const times=[snapshot.validated_at||snapshot.generated_at,...snapshot.nodes.map(n=>n.checked_at)].map(Date.parse);
+ return times.some(t=>!Number.isFinite(t)||Date.now()-t>snapshot.stale_after_minutes*60000||t-Date.now()>60000);
+};
 function render(){
  const query=$('search').value.trim().toLowerCase();
  const rows=Object.entries(snapshot.countries).sort((a,b)=>b[1].verified-a[1].verified||a[0].localeCompare(b[0])).filter(([code,data])=>(!query||[code,names.of(code),english.of(code)].join(' ').toLowerCase().includes(query))&&($('filter').value!=='available'||data.verified>0));
@@ -26,7 +30,7 @@ function render(){
  if(enabled){$('download').href='subscribe.conf';$('download').download='lkstru-edge.conf';}else $('download').removeAttribute('href');
  $('copy').disabled=!enabled;
  $('notice').className=stale()?'warning':'';
- $('notice').textContent=stale()?'清單已超過 30 分鐘。請在 Mac 重新驗證並發布後再匯入。':snapshot.nodes.length?'只匯出本次通過測試的節點。請在 iPhone 再確認可達性與出口國家。':'本次沒有通過測試的節點；設定會拒絕連線，不會自動直連。';
+ $('notice').textContent=stale()?'節點驗證已超過 30 分鐘。請在 Mac 重新驗證並發布後再匯入。':snapshot.nodes.length?'只匯出本次通過測試的節點。請在 iPhone 再確認可達性與出口國家。':'本次沒有通過測試的節點；設定會拒絕連線，不會自動直連。';
 }
 $('search').addEventListener('input',()=>{if(snapshot)render();});
 $('filter').addEventListener('change',()=>{if(snapshot)render();});

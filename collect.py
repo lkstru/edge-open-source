@@ -184,6 +184,32 @@ def verify(row):
         return dict(row, verified=False, error=str(exc))
 
 
+def scan_candidates(pools, previous_results, limit, workers, target=None, check=None):
+    """Bounded country rounds; stop deep sampling after enough initial successes."""
+    check=check or verify
+    queues={country:list(rows[:limit]) for country,rows in pools.items()}
+    counts={country:sum(r['country']==country and r['verified'] for r in previous_results)
+            for country in queues}
+    results=[];attempted=[]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        while True:
+            batch=[]
+            for country in sorted(queues,key=lambda c:(counts[c]>0,c)):
+                if target is not None and counts[country]>=target: continue
+                take=len(queues[country]) if target is None else min(4,target-counts[country])
+                batch.extend(queues[country][:take]);del queues[country][:take]
+            if not batch: break
+            attempted.extend(batch)
+            futures=[pool.submit(check,row) for row in batch]
+            for future in concurrent.futures.as_completed(futures):
+                result=future.result();results.append(result)
+                counts[result['country']]+=bool(result['verified'])
+                if len(results)%25==0:
+                    print(f"Checked {len(results)} new candidates; verified "
+                          f"{sum(r['verified'] for r in results)}",flush=True)
+    return results,attempted
+
+
 def atomic_write(path, content):
     with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
                                      delete=False) as f:
@@ -220,7 +246,9 @@ def export(output, report):
     output.mkdir(parents=True, exist_ok=True)
     verified = sorted([r for r in report['results'] if r['verified']],
                       key=lambda r:(r['country'], r['test_seconds']))
-    text = config_text(verified, report['checked_at'])
+    validated_at=min((r['checked_at'] for r in verified),
+                     default=report.get('finished_at',report['checked_at']))
+    text = config_text(verified, validated_at)
     atomic_write(output/'shadowrocket.conf', text)
     atomic_write(output/'report.json', json.dumps(report, ensure_ascii=False, indent=2)+'\n')
     atomic_write(output/'verified.json', json.dumps(verified, indent=2)+'\n')
@@ -245,13 +273,14 @@ def export(output, report):
                            candidates=report['collected'].get(code, 0))
         if count:
             atomic_write(per_country/(code+'.conf'), config_text(
-                [r for r in verified if r['country']==code], report['checked_at']))
+                [r for r in verified if r['country']==code], validated_at))
     for asset in (ROOT/'web').iterdir():
         if asset.is_file():
             atomic_write(page/asset.name, asset.read_text())
     atomic_write(page/'subscribe.conf', text)
     atomic_write(page/'nodes.json', json.dumps(dict(
         generated_at=report['checked_at'], finished_at=report.get('finished_at'),
+        validated_at=validated_at,
         stale_after_minutes=30, countries=states,
         nodes=[dict({key: row[key] for key in ('country','protocol','host','port','checked_at','test_seconds')},
                     rechecked=row.get('rechecked',False)) for row in verified]), ensure_ascii=False, indent=2)+'\n')
@@ -265,10 +294,14 @@ def export(output, report):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--countries', default='ALL', help='Comma-separated ISO codes, or ALL')
-    parser.add_argument('--limit', type=int, default=16, help='Candidates per country (1-100)')
+    parser.add_argument('--mode',choices=['daily','deep'],default='daily')
+    parser.add_argument('--target',type=int,default=4,help='Deep-mode initial successes per country')
+    parser.add_argument('--limit', type=int, default=None, help='Candidates per country (1-100)')
     parser.add_argument('--workers', type=int, default=8, help='Concurrent checks (1-8)')
     parser.add_argument('--output', type=Path, default=ROOT/'output')
     args = parser.parse_args()
+    args.limit=args.limit if args.limit is not None else (64 if args.mode=='deep' else 16)
+    if not 1<=args.target<=16: parser.error('target must be 1-16')
     codes = set(country_codes())
     countries = sorted(codes) if args.countries.upper() == 'ALL' else list(dict.fromkeys(
         c.strip().upper() for c in args.countries.split(',')))
@@ -278,7 +311,8 @@ def main():
         parser.error('limit must be 1-100; workers must be 1-8')
     report = dict(checked_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                   scope='Local Mac HTTPS checks; no iPhone, UDP, DNS leak or playback acceptance',
-                  countries=countries, source_errors=[], results=[], collected={})
+                  countries=countries, mode=args.mode, target=args.target if args.mode=='deep' else None,
+                  source_errors=[], results=[], collected={})
     # One bounded HProxy global response avoids hundreds of repeated API requests.
     try:
         query = urllib.parse.urlencode(dict(format='json', protocol='http,socks5',
@@ -316,21 +350,16 @@ def main():
     print(f'Checking {len(previous)} previously published nodes (outside new-candidate budget)',flush=True)
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
         report['results'].extend(pool.map(verify,previous))
-    covered={r['country'] for r in report['results'] if r['verified']}
-    jobs = []
-    for country, (rows, errors) in zip(countries, batches):
+    pools={}
+    for country,(rows,errors) in zip(countries,batches):
         report['source_errors'].extend(errors)
-        report['collected'][country] = len(rows)
-        jobs.extend(new_candidates(rows,previous,args.limit,history))
-    jobs.sort(key=lambda row:row['country'] in covered)
-    print(f'Checking {len(jobs)} candidates, concurrency {args.workers}', flush=True)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = [pool.submit(verify, row) for row in jobs]
-        for index, future in enumerate(concurrent.futures.as_completed(futures), 1):
-            report['results'].append(future.result())
-            if index % 25 == 0 or index == len(jobs):
-                print(f"Checked {index}/{len(jobs)}; verified " +
-                      str(sum(r['verified'] for r in report['results'])), flush=True)
+        report['collected'][country]=len(rows)
+        pools[country]=new_candidates(rows,previous,args.limit,history)
+    print(f'Mode {args.mode}: up to {sum(map(len,pools.values()))} new candidates; '
+          f'concurrency {args.workers}',flush=True)
+    results,jobs=scan_candidates(pools,report['results'],args.limit,args.workers,
+                                args.target if args.mode=='deep' else None)
+    report['results'].extend(results)
     # A second full HTTPS/country/YouTube check immediately before exporting.
     passing=[(i,r) for i,r in enumerate(report['results']) if r['verified']]
     print(f'Rechecking {len(passing)} initially verified nodes before publication',flush=True)

@@ -51,7 +51,7 @@ python3 collect.py --countries ALL --limit 16 --workers 8
 # Collect a targeted set with a larger sample
 python3 collect.py --countries JP,TW,HK,US --limit 24 --workers 8
 
-# Publish a fresh local snapshot (must be no older than 30 minutes)
+# Publish a local snapshot whose node reverifications are all within 30 minutes
 python3 publish.py --skip-refresh
 
 # Verify a deployment against the local dist/ directory
@@ -92,3 +92,14 @@ Previously published nodes are fully revalidated before new candidates are check
 `.scan-history.json` stores up to 30 days of local attempt times. `.published-nodes.json` stores the successfully published pool. Both are excluded from Git. The first upgrade bootstraps from an existing `dist/nodes.json`. Source errors are recorded while other sources continue; empty scans stop publication. Nonempty snapshots without second-verification markers cannot be published, so perform a fresh scan after upgrading.
 
 See [SOURCES.md](SOURCES.md) for source interfaces, protocol mapping, and Proxio CC BY 4.0 data attribution. Source counts in the local report are assignments after deduplication, not guaranteed incremental or exclusive contributions.
+
+## Daily and deep scanning
+
+Double-click `run-macos.command`: choose 1 (daily, default on Enter) or 2 (deep). Both revalidate previous nodes outside the new-candidate budget and fully recheck all initial successes before export. Daily mode checks up to 16 new candidates per country. Deep mode checks batches of at most 4 per country, up to 64 new candidates per country; sampling stops when that country has 4 initial successes, including old nodes that passed this run. Final rechecks may reduce that count; a target is not a guarantee. Both modes keep a maximum of 8 concurrent verifications and prioritize countries without a successful old node. Deep scans may take much longer. Noninteractive calls default to daily; CLI arguments bypass the menu.
+
+```sh
+python3 publish.py --mode deep
+python3 collect.py --mode deep
+```
+
+Freshness is based on each successful node’s final `checked_at`, not the beginning of a long scan. The publisher checks every node; the website disables full-snapshot downloads when any included node expires. `validated_at` records the oldest included verification. A long scan is accepted only if final node verifications remain within 30 minutes. Static file URLs and configurations already imported into clients cannot be revoked by the website’s expiry display.

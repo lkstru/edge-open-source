@@ -43,5 +43,10 @@ fi
 export PAGES_PROJECT_NAME="$PROJECT_NAME"
 export PAGES_BRANCH=$(sed -n 's/^PAGES_BRANCH=//p' deploy/project.env | tail -n 1 | tr -d '\r')
 PAGES_BRANCH=${PAGES_BRANCH:-main}
-python3 publish.py
+if (( $# )); then
+  python3 publish.py "$@"
+else
+  source ./scan-mode.zsh || exit 0
+  python3 publish.py --mode "$SCAN_MODE"
+fi
 pause_and_exit "$?"

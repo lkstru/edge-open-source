@@ -23,7 +23,7 @@ class PublishTests(unittest.TestCase):
     def test_nonempty_snapshot_requires_second_verification(self):
         with tempfile.TemporaryDirectory() as folder:
             row=dict(host='8.8.8.8',port=80,protocol='http',country='US',
-                     verified=True,checked_at='test',test_seconds=1,exit_ip='8.8.8.8')
+                     verified=True,checked_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),test_seconds=1,exit_ip='8.8.8.8')
             report=dict(checked_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                         results=[row],countries=['US'],source_errors=[],collected={'US':1})
             collect.export(Path(folder),report)
@@ -38,6 +38,7 @@ class PublishTests(unittest.TestCase):
             page=self.snapshot(folder)
             info=json.loads((page/'nodes.json').read_text())
             info['generated_at']='2020-01-01T00:00:00+00:00'
+            info['validated_at']=info['generated_at']
             (page/'nodes.json').write_text(json.dumps(info))
             with self.assertRaisesRegex(ValueError,'stale'):
                 publish.validate(page)
