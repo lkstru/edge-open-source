@@ -81,6 +81,6 @@ python3 check_live.py https://YOUR-PAGES-PROJECT.pages.dev
 - `deploy/`：Pages 建置設定及本機專案名稱範例。
 - `run-macos.command`、`collect-only.command`：Finder 啟動指令。
 
-另請閱讀 [保留文件清單](KEEP-FILES.md)、[安全政策](SECURITY.md)、[貢獻指南](CONTRIBUTING.md) 與 [MIT 授權](LICENSE)。
+另請閱讀 [安全政策](SECURITY.md)、[貢獻指南](CONTRIBUTING.md) 與 [MIT 授權](LICENSE)。
 
 資料來源文件：[ProxySpace](https://proxyspace.pro/) 與 [HProxy 公開代理清單](https://hproxy.com/docs/free-proxy-list)。本專案與來源服務、Cloudflare 或 Shadowrocket 均無隸屬或背書關係。

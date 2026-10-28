@@ -81,6 +81,6 @@ The generated Pages files (`nodes.json`, `subscribe.conf`, and country configura
 - `deploy/`: Pages build settings and an example local project-name file.
 - `run-macos.command`, `collect-only.command`: Finder launchers.
 
-See [KEEP-FILES.md](KEEP-FILES.md), [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), and [LICENSE](LICENSE).
+See [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), and [LICENSE](LICENSE).
 
 Data-source references: [ProxySpace](https://proxyspace.pro/) and [HProxy free proxy list](https://hproxy.com/docs/free-proxy-list). This project is independent and is not endorsed by either provider, Cloudflare, or Shadowrocket.
