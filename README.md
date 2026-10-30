@@ -103,3 +103,11 @@ python3 collect.py --mode deep
 ```
 
 Freshness is based on each successful node’s final `checked_at`, not the beginning of a long scan. The publisher checks every node; the website disables full-snapshot downloads when any included node expires. `validated_at` records the oldest included verification. A long scan is accepted only if final node verifications remain within 30 minutes. Static file URLs and configurations already imported into clients cannot be revoked by the website’s expiry display.
+
+## Source collection and candidate ordering (2026-10-30)
+
+Source downloads use a 10-second connection / 45-second total timeout and up to three attempts for transient network errors or HTTP 408/429/5xx, with 1/2-second backoff. Permanent 404s, certificate errors and oversized responses do not retry. Proxy probes retain their 5/12-second limits and full final verification.
+
+Within each source/protocol group, ordering prefers local historical verification reliability, then optional provider `last_checked` and `latency_ms` / `latency_s` hints. One of every four positions explores untested or least recently tested candidates. Missing/invalid hints are ignored. Numeric legacy `.scan-history.json` entries migrate to timestamp and success/failure counters; neither history nor provider hints bypass validation. Country budgets and deep-mode goals are unchanged.
+
+Terminal output and local `output/report.json` source summaries include raw records, eligible unique candidates, cross-source dedup assignment, country coverage, new candidates attempted and final new successes. Raw JSON counts cover the whole downloaded payload, while ProxySpace lines and eligible/dedup counts cover requested countries and supported protocols. Dedup credits the first source only. Global JSON sources expose `fetch_complete`; raw counts can be partial on a failed paginated fetch, whose candidates are discarded. Reports remain local.

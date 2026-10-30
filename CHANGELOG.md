@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Separate source-download timeouts and bounded retries from proxy probes.
+- Rank candidates with optional freshness/latency hints and local outcomes, preserving exploration and balanced source sampling.
+- Add raw/eligible/dedup/country/new-test statistics to local reports and terminal output.
+
+
 ## 1.2.0 — 2026-10-28
 
 - Add daily/deep choices to the existing Finder launchers.

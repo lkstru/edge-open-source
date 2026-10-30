@@ -39,3 +39,5 @@ Use `lkstru-edge-open-source.zip` or create a new archive from the clean source 
 The public source package is a clean template. Keep the currently working local installation and its private configuration until you have configured and independently confirmed the public-source copy. The Pages deployment itself is managed by Cloudflare; source files do not contain its account settings or credentials.
 
 Keep `.scan-history.json` and `.published-nodes.json` private. Both are optional local state, never public release files.
+
+The private `.scan-history.json` now also stores local success/failure counters used for candidate ordering. Old numeric timestamps remain supported. Keep it if you want to preserve ranking history; losing it does not prevent a fresh scan. Source statistics are in the private `output/report.json`.

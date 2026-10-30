@@ -19,7 +19,7 @@ class CollectorTests(unittest.TestCase):
         rows, blocked = collect.parse_source(payload,'hproxy','US','http')
         self.assertEqual(len(rows),1)
         self.assertIn(('1.1.1.1','80'), blocked)
-        def source(url):
+        def source(url, **kwargs):
             return payload if 'hproxy.com' in url else '1.1.1.1:80\n8.8.8.8:80'
         with patch.object(collect,'download',source):
             merged, errors = collect.collect('US')

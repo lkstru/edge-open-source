@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 import time
 import urllib.parse
-from source_adapters import fetch_source
+from source_adapters import fetch_source, quality_metadata
 
 ROOT = Path(__file__).resolve().parent
 
@@ -29,18 +29,34 @@ def public_endpoint(host, port):
         return False
 
 
-def download(url, proxy=None, max_bytes=500000):
-    # -q ignores ~/.curlrc, explicit proxy ignores ambient proxy configuration.
+def download(url, proxy=None, max_bytes=500000, source=False):
+    # Source lists get more time; proxy probes keep their existing strict limits.
+    connect, total = (10, 45) if source else (5, 12)
     cmd = ['curl', '-q', '--silent', '--show-error', '--fail', '--proto', '=https',
-           '--connect-timeout', '5', '--max-time', '12', '--max-filesize', str(max_bytes),
-           '--proxy', proxy or '', '--noproxy', '', url]
-    result = subprocess.run(cmd, capture_output=True, timeout=15)
-    if result.returncode:
-        raise RuntimeError('curl ' + str(result.returncode) + ': ' +
-                           result.stderr.decode(errors='replace').strip()[:160])
-    if len(result.stdout) > max_bytes:
-        raise ValueError('Response too large')
-    return result.stdout.decode('utf-8')
+           '--connect-timeout', str(connect), '--max-time', str(total),
+           '--max-filesize', str(max_bytes), '--proxy', proxy or '', '--noproxy', '', url]
+    for attempt in range(3 if source else 1):
+        try:
+            result = subprocess.run(cmd, capture_output=True, timeout=total+3)
+        except subprocess.TimeoutExpired:
+            if source and attempt < 2:
+                time.sleep(attempt+1)
+                continue
+            raise RuntimeError('Source download process timed out' if source else 'Proxy probe timed out')
+        if not result.returncode:
+            if len(result.stdout) > max_bytes: raise ValueError('Response too large')
+            return result.stdout.decode('utf-8')
+        stderr = result.stderr.decode(errors='replace').strip()
+        transient = result.returncode in (5, 6, 7, 18, 28, 35, 52, 55, 56, 92)
+        transient |= result.returncode == 22 and bool(re.search(r'\b(408|429|5\d\d)\b', stderr))
+        if source and transient and attempt < 2:
+            time.sleep(attempt+1)
+            continue
+        raise RuntimeError('curl ' + str(result.returncode) + ': ' + stderr[:160])
+
+
+def download_source(url, max_bytes=500000):
+    return download(url, max_bytes=max_bytes, source=True)
 
 
 def parse_source(text, source, country, protocol):
@@ -61,7 +77,7 @@ def parse_source(text, source, country, protocol):
             host, port = row.get('ip'), row.get('port')
             if public_endpoint(host, port):
                 rows.append(dict(host=host, port=int(port), protocol=protocol,
-                                 country=country, source=source))
+                                 country=country, source=source, **quality_metadata(row)))
     else:
         for line in text.splitlines():
             match = re.fullmatch(r'(\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})', line.strip())
@@ -71,7 +87,7 @@ def parse_source(text, source, country, protocol):
     return rows, blocked
 
 
-def collect(country, hproxy_rows=None, extra_rows=(), global_blocked=()):
+def collect(country, hproxy_rows=None, extra_rows=(), global_blocked=(), metrics=None):
     groups, blocked, errors = [], set(), []
     for source in ('hproxy', 'proxyspace'):
         for protocol in ('http', 'socks5'):
@@ -83,8 +99,10 @@ def collect(country, hproxy_rows=None, extra_rows=(), global_blocked=()):
                 url = 'https://hproxy.com/api/proxy-list?' + query
             try:
                 text = (hproxy_rows if source == 'hproxy' and hproxy_rows is not None
-                        else download(url))
+                        else download_source(url))
                 rows, bad = parse_source(text, source, country, protocol)
+                if metrics is not None and source == 'proxyspace':
+                    metrics['raw_records'] = metrics.get('raw_records',0) + len([x for x in text.splitlines() if x.strip()])
                 groups.append(rows)
                 blocked.update(bad)
             except Exception as exc:
@@ -98,6 +116,12 @@ def collect(country, hproxy_rows=None, extra_rows=(), global_blocked=()):
             groups.append([r for r in extra_rows if r['country']==country
                            and r['source']==source and r['protocol']==protocol
                            and public_endpoint(r['host'],r['port'])])
+    if metrics is not None:
+        metrics['eligible'] = {}
+        for group in groups:
+            for row in group:
+                if not public_endpoint(row['host'],row['port']) or (row['host'],str(row['port'])) in blocked: continue
+                metrics['eligible'].setdefault(row['source'],set()).add(endpoint_key(row))
     seen, rows = set(), []
     for batch in itertools.zip_longest(*groups):
         for row in batch:
@@ -115,12 +139,33 @@ def endpoint_key(row):
     return f"{row['protocol']}:{row['host']}:{row['port']}"
 
 
+def history_entry(value):
+    return value if isinstance(value,dict) else dict(attempted_at=value if isinstance(value,(int,float)) else 0)
+
+
 def select_candidates(rows, limit, history):
     groups={}
     for row in rows:
         groups.setdefault((row['source'],row['protocol']),[]).append(row)
-    for group in groups.values():
-        group.sort(key=lambda r:history.get(endpoint_key(r),0))
+    def quality(row):
+        h=history_entry(history.get(endpoint_key(row),0))
+        successes=h.get('successes',0); failures=h.get('failures',0)
+        reliability=(successes+1)/(successes+failures+2)
+        return (-reliability, -row.get('source_checked_at',0),
+                row.get('source_latency_ms',float('inf')), h.get('attempted_at',0))
+    for key,group in groups.items():
+        ranked=sorted(group,key=quality)
+        explore=sorted(group,key=lambda r:history_entry(history.get(endpoint_key(r),0)).get('attempted_at',0))
+        ordered=[];seen=set();qi=ei=0
+        while len(ordered)<len(group):
+            queue=explore if len(ordered)%4==3 else ranked
+            index=ei if queue is explore else qi
+            while index<len(queue) and endpoint_key(queue[index]) in seen: index+=1
+            if index==len(queue): break
+            row=queue[index];ordered.append(row);seen.add(endpoint_key(row))
+            if queue is explore: ei=index+1
+            else: qi=index+1
+        groups[key]=ordered
     selected=[]
     for batch in itertools.zip_longest(*groups.values()):
         selected.extend(r for r in batch if r is not None)
@@ -313,24 +358,30 @@ def main():
                   scope='Local Mac HTTPS checks; no iPhone, UDP, DNS leak or playback acceptance',
                   countries=countries, mode=args.mode, target=args.target if args.mode=='deep' else None,
                   source_errors=[], results=[], collected={})
+    hproxy_complete=False
     # One bounded HProxy global response avoids hundreds of repeated API requests.
     try:
         query = urllib.parse.urlencode(dict(format='json', protocol='http,socks5',
                                            sort='uptime', min_uptime_pct=70))
-        hproxy_rows = download('https://hproxy.com/api/proxy-list?'+query, max_bytes=8000000)
+        hproxy_rows = download_source('https://hproxy.com/api/proxy-list?'+query, max_bytes=8000000)
         if not isinstance(json.loads(hproxy_rows), list):
             raise ValueError('Expected HProxy JSON array')
+        hproxy_complete=True
     except Exception as exc:
         hproxy_rows = '[]'
         report['source_errors'].extend(dict(country=c, source='hproxy', error=str(exc))
                                        for c in countries)
+    fetch_metrics={'hproxy':dict(raw_records=len(json.loads(hproxy_rows)),fetch_complete=hproxy_complete),
+                   'proxyspace':dict(raw_records=0), 'proxyscrape':{}, 'proxio':{}}
     extra_rows=[]; global_blocked=set()
     for row in json.loads(hproxy_rows):
         if row.get('tls_intercepted') is True:
             global_blocked.add((str(row.get('ip')),str(row.get('port'))))
     for source in ('proxyscrape','proxio'):
         try:
-            rows,bad=fetch_source(source,download)
+            fetch_metrics[source]['fetch_complete']=False
+            rows,bad=fetch_source(source,download_source,fetch_metrics[source])
+            fetch_metrics[source]['fetch_complete']=True
             extra_rows.extend(rows);global_blocked.update(bad)
             print(f'{source}: loaded {len(rows)} protocol candidates',flush=True)
         except Exception as error:
@@ -341,11 +392,13 @@ def main():
     try:
         history=json.loads(history_path.read_text())
         if not isinstance(history,dict): raise ValueError('Invalid history')
-        history={k:v for k,v in history.items() if isinstance(v,(int,float))}
+        history={k:v for k,v in history.items() if isinstance(v,(int,float,dict))}
     except (OSError,ValueError): history={}
     print(f'Collecting {len(countries)} countries; source concurrency 4', flush=True)
+    collection_metrics={c:{} for c in countries}
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        batches = list(pool.map(lambda c: collect(c, hproxy_rows, extra_rows, global_blocked), countries))
+        batches = list(pool.map(lambda c: collect(c, hproxy_rows, extra_rows, global_blocked,
+                                                  collection_metrics[c]), countries))
     previous=load_previous(args.output,set(countries),global_blocked)
     print(f'Checking {len(previous)} previously published nodes (outside new-candidate budget)',flush=True)
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -370,13 +423,34 @@ def main():
         result['rechecked']=True
         report['results'][index]=result
     now=time.time()
-    for row in previous+jobs: history[endpoint_key(row)]=now
-    history={k:v for k,v in history.items() if now-v<30*86400}
+    for row in report['results']:
+        key=endpoint_key(row); old=history_entry(history.get(key,0))
+        history[key]=dict(attempted_at=now, successes=old.get('successes',0)+int(row['verified']),
+                          failures=old.get('failures',0)+int(not row['verified']))
+    history={k:v for k,v in history.items() if now-history_entry(v).get('attempted_at',0)<30*86400}
     atomic_write(history_path,json.dumps(history)+'\n')
     report['source_summary']={source:dict(
         attempted=sum(r['source']==source for r in report['results']),
         verified=sum(r['source']==source and r['verified'] for r in report['results']))
         for source in ('hproxy','proxyspace','proxyscrape','proxio','previous')}
+    for source in ('hproxy','proxyspace','proxyscrape','proxio'):
+        eligible=set(); unique=set(); covered=set()
+        for country,(rows,_) in zip(countries,batches):
+            keys=collection_metrics[country].get('eligible',{}).get(source,set())
+            eligible.update(keys)
+            if keys: covered.add(country)
+            unique.update(endpoint_key(r) for r in rows if r['source']==source)
+        if source=='proxyspace':
+            fetch_metrics[source]['raw_records']=sum(m.get('raw_records',0) for m in collection_metrics.values())
+        summary=report['source_summary'][source]
+        summary.update(fetch_metrics[source], source_error_count=sum(e['source']==source and e.get('kind')!='not_published' for e in report['source_errors']), eligible_unique=len(eligible),
+                       assigned_after_cross_source_dedup=len(unique), countries=len(covered),
+                       new_attempted=sum(r['source']==source and not r.get('previous') for r in results),
+                       final_verified_new=sum(r['source']==source and not r.get('previous') and r['verified'] for r in report['results']))
+        print(f"{source}: raw records {summary.get('raw_records',0)}, eligible unique {len(eligible)}, "
+              f"after cross-source dedup {len(unique)}, countries {len(covered)}, "
+              f"new tested {summary['new_attempted']}, new passed {summary['final_verified_new']}",flush=True)
+    report['source_statistics_scope']='Raw JSON records include all downloaded countries/protocols; ProxySpace raw lines and eligible/dedup counts cover requested countries and HTTP/SOCKS5. Dedup assignment credits the first source only, not exclusive ownership.'
     report['previous_summary']=dict(attempted=len(previous),
         verified=sum(r.get('previous',False) and r['verified'] for r in report['results']))
     report['new_attempted']=len(jobs)
